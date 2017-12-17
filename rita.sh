@@ -3,7 +3,6 @@ set -euo pipefail
 
 cd ../babeld
 make
-make install
 
 cd ../rita
 cargo build
@@ -43,7 +42,7 @@ stop_processes()
     do
       kill -9 "$(cat $f)"
     done
-    killall ping6
+    killall ping
   set -eux
 }
 
@@ -86,7 +85,7 @@ ip netns exec netlab-1 $babeld -I babeld-n1.pid -d 1 -L babeld-n1.log -h 1 -P 5 
 ip netns exec netlab-1 bash -c 'failed=1
                                 while [ $failed -ne 0 ]
                                 do
-                                  ping6 -n 2001::3 > ping.log
+                                  ping -6 -n 2001::3 > ping.log
                                   failed=$?
                                   sleep 1
                                 done' &
