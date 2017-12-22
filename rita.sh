@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ $EUID -ne 0 ]]; then
+   echo "This script must be run as root :("
+   exit 1
+fi
+
+ping6=ping6
+if ! which ping6; then
+	ping6='ping -6'
+fi
+
 cd ../babeld
 make
 
@@ -12,12 +22,6 @@ cd ../integration-tests
 network_lab=./deps/network-lab/network-lab.sh
 babeld=../babeld/babeld
 rita=../rita/target/debug/rita
-
-
-if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root :("
-   exit 1
-fi
 
 fail_string()
 {
@@ -43,6 +47,7 @@ stop_processes()
       kill -9 "$(cat $f)"
     done
     killall ping
+    killall ping6
   set -eux
 }
 
@@ -82,13 +87,6 @@ ip netns exec netlab-1 sysctl -w net.ipv4.ip_forward=1
 ip netns exec netlab-1 sysctl -w net.ipv6.conf.all.forwarding=1
 ip netns exec netlab-1 ip link set up lo
 ip netns exec netlab-1 $babeld -I babeld-n1.pid -d 1 -L babeld-n1.log -h 1 -P 5 -w veth-1-2 -G 8080 &
-ip netns exec netlab-1 bash -c 'failed=1
-                                while [ $failed -ne 0 ]
-                                do
-                                  ping -6 -s 1400 -n 2001::3 &> ping.log
-                                  failed=$?
-                                  sleep 1
-                                done' &
 ip netns exec netlab-1 echo $! > ping_retry.pid
 
 ip netns exec netlab-2 sysctl -w net.ipv4.ip_forward=1
@@ -111,7 +109,16 @@ ip netns exec netlab-3 sysctl -w net.ipv6.conf.all.forwarding=1
 ip netns exec netlab-3 ip link set up lo
 ip netns exec netlab-3 $babeld -I babeld-n3.pid -d 1 -L babeld-n3.log -h 1 -P 1 -w veth-3-2 -G 8080 &
 
-sleep 20
+time_elapsed=0
+while ! grep -q "2001::3" babeld-n1.log && [ $time_elapsed -lt 120 ]
+do
+	sleep 2
+	time_elapsed=$(expr $time_elapsed + 2);
+done
+
+if [ $time_elapsed -ge 120 ]; then echo "wait for babel timeout exceeded" || exit 1; fi
+
+ip netns exec netlab-1 $ping6 -s 1400 -c 10 -n 2001::3 &> ping.log
 
 stop_processes
 
